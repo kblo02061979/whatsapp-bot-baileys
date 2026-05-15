@@ -3,7 +3,12 @@ import cors from "cors";
 import makeWASocket, { useMultiFileAuthState, DisconnectReason } from "@whiskeysockets/baileys";
 import qrcode from "qrcode";
 import { createClient } from "@supabase/supabase-js";
-
+const fs = require('fs');
+const sessionPath = './sessions';
+if (fs.existsSync(sessionPath)) {
+    fs.rmSync(sessionPath, { recursive: true, force: true });
+    console.log('✅ Sessão antiga removida!');
+}
 const PORT = process.env.PORT || 3000;
 const SESSION_DIR = process.env.SESSION_DIR || "./sessions/default";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
