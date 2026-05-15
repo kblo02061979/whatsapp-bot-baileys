@@ -28,9 +28,7 @@ async function startWhatsApp() {
     
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
         browser: ["Chrome", "Linux", "128.0"],
-        // Força a geração do QR mesmo se houver sessão
         defaultQueryTimeoutMs: undefined,
         keepAliveIntervalMs: 10000
     });
@@ -40,14 +38,17 @@ async function startWhatsApp() {
     sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
         
+        // 🔍 LOG para ver o que está acontecendo
         console.log("📡 Update recebido:", { connection, hasQR: !!qr });
         
         if (qr) {
             lastQR = await qrcode.toDataURL(qr);
             console.log("✅ QR Code GERADO!");
-            // Mostra QR no terminal também
-            console.log("📱 QR Code (texto para decodificar):");
-            console.log(qr);
+            
+            // Mostra QR como texto nos logs
+            const qrText = await qrcode.toString(qr, { type: 'terminal' });
+            console.log("📱 COPIE O QR CODE ABAIXO E USE UM DECODIFICADOR:");
+            console.log(qrText);
         }
         
         if (connection === "open") {
@@ -71,6 +72,8 @@ async function startWhatsApp() {
             console.log("🔄 Conectando...");
         }
     });
+    
+}
     
     // Responde mensagens
     sock.ev.on("messages.upsert", async (m) => {
