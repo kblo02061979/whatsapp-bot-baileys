@@ -1,122 +1,131 @@
 const express = require('express');
 const cors = require('cors');
-const venom = require('venom-bot');
+const qrcode = require('qrcode');
 const fs = require('fs');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 
 const PORT = process.env.PORT || 3000;
 const app = express();
 
-let client = null;
-let qrCodeData = null;
+let sock = null;
+let lastQR = null;
 let connectionStatus = "disconnected";
-let myPhone = null;
+let myJid = null;
 
 app.use(cors());
 app.use(express.json());
 
-// Limpa sessão anterior
-const sessionPath = './tokens';
-if (fs.existsSync(sessionPath)) {
-    fs.rmSync(sessionPath, { recursive: true, force: true });
-    console.log('🗑️ Sessão antiga removida!');
+// LIMPEZA TOTAL DA SESSÃO
+const sessionDir = './sessions';
+if (fs.existsSync(sessionDir)) {
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+    console.log('🗑️ Sessão completamente removida!');
 }
 
-function startVenom() {
-    console.log("🚀 Iniciando Venom...");
-    
-    venom.create({
-        session: 'whatsapp-bot',
-        headless: true,
-        useChrome: false,
-        debug: false,
-        logQR: true,
-        browserArgs: ['--no-sandbox', '--disable-setuid-sandbox'],
-        folderNameToken: 'tokens',
-        mkdirFolderToken: './tokens',
-        waitForQRCode: true,
-        viewport: { width: 800, height: 600 }
-    })
-    .then((venomClient) => {
-        client = venomClient;
-        connectionStatus = "connected";
+if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir, { recursive: true });
+}
+
+async function startWhatsApp() {
+    try {
+        console.log("🚀 Iniciando WhatsApp...");
         
-        // Pega o número do usuário
-        client.getHostDevice().then(device => {
-            myPhone = device?.me?.user || 'Desconhecido';
-            console.log("🎉 CONECTADO! Número:", myPhone);
+        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+        console.log("✅ Auth state carregado");
+        
+        sock = makeWASocket({
+            auth: state,
+            browser: ["Chrome", "Linux", "128.0"],
+            printQRInTerminal: true
         });
         
-        console.log("✅ Venom iniciado com sucesso!");
+        sock.ev.on("creds.update", saveCreds);
         
-        // Evento de QR Code
-        client.onStreamChange((stream) => {
-            if (stream === 'qrcode') {
-                console.log("QR Code gerado!");
+        sock.ev.on("connection.update", async (update) => {
+            const { connection, lastDisconnect, qr } = update;
+            
+            console.log("📡 Update:", { connection, hasQR: !!qr });
+            
+            if (qr) {
+                console.log("✅✅✅ QR Code GERADO! ✅✅✅");
+                try {
+                    lastQR = await qrcode.toDataURL(qr);
+                    console.log("✅ QR convertido para imagem!");
+                } catch (err) {
+                    console.error("Erro converter QR:", err);
+                }
+            }
+            
+            if (connection === "open") {
+                connectionStatus = "connected";
+                myJid = sock.user?.id;
+                lastQR = null;
+                console.log("🎉 CONECTADO! JID:", myJid);
+            }
+            
+            if (connection === "close") {
+                connectionStatus = "disconnected";
+                const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+                console.log("🔌 Desconectado. Reconectar?", shouldReconnect);
+                if (shouldReconnect) {
+                    setTimeout(startWhatsApp, 5000);
+                }
+            }
+            
+            if (connection === "connecting") {
+                connectionStatus = "connecting";
+                console.log("🔄 Conectando...");
             }
         });
         
-        // Responde mensagens
-        client.onMessage(async (message) => {
-            if (message.isGroupMsg) return;
+        // RESPOSTAS AUTOMÁTICAS
+        sock.ev.on("messages.upsert", async (m) => {
+            const msg = m.messages?.[0];
+            if (!msg || msg.key.fromMe) return;
             
-            const from = message.from;
-            const text = message.body;
+            const from = msg.key.remoteJid;
+            const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
+            
+            if (!text) return;
             
             console.log("📩 Mensagem de", from, ":", text);
             
             const lowerText = text.toLowerCase();
             
             if (lowerText === "oi" || lowerText === "olá") {
-                await client.sendText(from, "Olá! 👋 Bot online! Digite 'ajuda' para comandos.");
-            } 
-            else if (lowerText === "ajuda" || lowerText === "menu") {
-                await client.sendText(from, `📋 *Comandos:*\n\n• *oi/olá* - Saudação\n• *status* - Verifica se estou online\n• *agendar <texto>* - Agendamento\n• *ajuda* - Esta lista`);
-            }
-            else if (lowerText === "status") {
-                await client.sendText(from, `✅ Bot online! Conectado como: ${myPhone || "?"}`);
-            }
-            else if (lowerText.startsWith("agendar")) {
+                await sock.sendMessage(from, { text: "Olá! 👋 Bot online! Digite 'ajuda' para comandos." });
+            } else if (lowerText === "ajuda" || lowerText === "menu") {
+                await sock.sendMessage(from, { 
+                    text: `📋 *Comandos:*\n\n• *oi/olá* - Saudação\n• *status* - Verifica se estou online\n• *agendar <texto>* - Agendamento\n• *ajuda* - Esta lista` 
+                });
+            } else if (lowerText === "status") {
+                await sock.sendMessage(from, { text: `✅ Bot online! Conectado como: ${myJid?.split("@")[0] || "Desconhecido"}` });
+            } else if (lowerText.startsWith("agendar")) {
                 const desc = text.substring(8).trim() || "Sem descrição";
-                await client.sendText(from, `✅ Agendamento recebido!\n📅 ${desc}\n⏰ ${new Date().toLocaleString('pt-BR')}\n\nEm breve confirmamos.`);
-            }
-            else {
-                await client.sendText(from, "Olá! 👋 Digite *ajuda* para ver os comandos.");
+                await sock.sendMessage(from, { text: `✅ Agendamento recebido!\n📅 ${desc}\n⏰ ${new Date().toLocaleString('pt-BR')}\n\nEm breve confirmamos.` });
+            } else {
+                await sock.sendMessage(from, { text: "Olá! 👋 Digite *ajuda* para ver os comandos." });
             }
         });
         
-    })
-    .catch((error) => {
-        console.error("Erro ao iniciar Venom:", error);
-        connectionStatus = "disconnected";
-        setTimeout(startVenom, 10000);
-    });
-}
-
-// Função para capturar QR Code (via callback do venom)
-// Venom já mostra o QR no terminal, vamos expor via rota
-let qrInterval = setInterval(async () => {
-    if (client) {
-        try {
-            const qr = await client.getQRCode();
-            if (qr) {
-                qrCodeData = qr;
-                console.log("✅ QR Code capturado!");
-            }
-        } catch(e) {}
+    } catch (error) {
+        console.error("Erro no startWhatsApp:", error);
+        setTimeout(startWhatsApp, 5000);
     }
-}, 2000);
+}
 
 // ROTA PRINCIPAL
 app.get("/", (req, res) => {
-    const statusText = connectionStatus === "connected" ? "✅ Conectado" : "❌ Desconectado";
+    const statusText = connectionStatus === "connected" ? "✅ Conectado" : 
+                       connectionStatus === "connecting" ? "🔄 Conectando..." : "❌ Desconectado";
     
     let qrHtml = '';
-    if (qrCodeData && connectionStatus !== "connected") {
-        qrHtml = `<img src="${qrCodeData}" style="max-width:280px; border-radius:10px;">`;
+    if (lastQR) {
+        qrHtml = `<img src="${lastQR}" style="max-width:280px; border-radius:10px;">`;
     } else if (connectionStatus === "connected") {
-        qrHtml = `<p>✅ Bot conectado! Número: ${myPhone || '-'}</p>`;
+        qrHtml = `<p>✅ Bot conectado! JID: ${myJid || '-'}</p>`;
     } else {
-        qrHtml = `<p>⏳ Iniciando bot... Aguarde QR Code</p>`;
+        qrHtml = `<p>⏳ Aguardando QR Code...<br><small>Atualize a página</small></p>`;
     }
     
     res.send(`
@@ -141,7 +150,7 @@ app.get("/", (req, res) => {
             border-radius: 20px;
         }
         h1 { color: #075e54; }
-        .status { font-size: 1.2rem; margin: 20px 0; color: ${connectionStatus === 'connected' ? 'green' : 'red'}; }
+        .status { font-size: 1.2rem; margin: 20px 0; }
         .qr-box { margin: 20px 0; }
         button {
             background: #075e54;
@@ -173,13 +182,13 @@ app.get("/", (req, res) => {
 
 app.post("/reset", async (req, res) => {
     try {
-        if (client) client.close();
-        if (fs.existsSync('./tokens')) {
-            fs.rmSync('./tokens', { recursive: true, force: true });
+        if (sock) sock.end();
+        if (fs.existsSync('./sessions')) {
+            fs.rmSync('./sessions', { recursive: true, force: true });
         }
-        qrCodeData = null;
+        lastQR = null;
         connectionStatus = "disconnected";
-        setTimeout(() => process.exit(0), 1000);
+        setTimeout(() => startWhatsApp(), 1000);
         res.json({ ok: true });
     } catch(e) {
         res.json({ ok: false });
@@ -188,6 +197,7 @@ app.post("/reset", async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`✅ Servidor rodando na porta ${PORT}`);
+    console.log(`📱 Acesse: http://localhost:${PORT}`);
 });
 
-startVenom();
+startWhatsApp();
