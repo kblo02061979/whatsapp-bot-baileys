@@ -1,12 +1,11 @@
 {
-  "name": "whatsapp-bot-baileys",
+  "name": "whatsapp-bot-venom",
   "version": "1.0.0",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
-    "qrcode": "^1.5.3",
+    "venom-bot": "^5.0.14",
     "express": "^4.18.2",
     "cors": "^2.8.5"
   }
