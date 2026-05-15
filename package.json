@@ -5,8 +5,8 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "venom-bot": "^5.0.14",
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "venom-bot": "5.0.14",
+    "express": "4.18.2",
+    "cors": "2.8.5"
   }
 }
