@@ -33,11 +33,11 @@ async function startWhatsApp() {
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         console.log("✅ Auth state carregado");
         
+        // SEM logger personalizado para evitar erro
         sock = makeWASocket({
             auth: state,
             browser: ["Chrome", "Linux", "128.0"],
-            printQRInTerminal: true,
-            logger: console
+            printQRInTerminal: true
         });
         
         sock.ev.on("creds.update", saveCreds);
@@ -69,6 +69,7 @@ async function startWhatsApp() {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
                 console.log("🔌 Desconectado. Reconectar?", shouldReconnect);
                 if (shouldReconnect) {
+                    console.log("Tentando reconectar em 5 segundos...");
                     setTimeout(startWhatsApp, 5000);
                 }
             }
@@ -277,8 +278,13 @@ app.post("/reset", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`✅ Servidor rodando na porta ${PORT}`);
-    console.log(`📱 Acesse: http://localhost:${PORT}`);
+    console.log(`
+╔════════════════════════════════════════╗
+║     🤖 WhatsApp Bot Rodando!          ║
+║     Porta: ${PORT}                        ║
+║     Painel: http://localhost:${PORT}      ║
+╚════════════════════════════════════════╝
+    `);
 });
 
 // Inicia o bot
