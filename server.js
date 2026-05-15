@@ -1,10 +1,8 @@
-import express from "express";
-import cors from "cors";
-import pkg from '@whiskeysockets/baileys';
-import qrcode from "qrcode";
-import fs from "fs";
-
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = pkg;
+const express = require('express');
+const cors = require('cors');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode');
+const fs = require('fs');
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -21,7 +19,7 @@ app.use(express.json());
 const sessionDir = './sessions';
 if (fs.existsSync(sessionDir)) {
     fs.rmSync(sessionDir, { recursive: true, force: true });
-    console.log('🗑️ Sessão removida!');
+    console.log('🗑️ Sessão completamente removida!');
 }
 
 if (!fs.existsSync(sessionDir)) {
@@ -30,12 +28,16 @@ if (!fs.existsSync(sessionDir)) {
 
 async function startWhatsApp() {
     try {
+        console.log("🚀 Iniciando WhatsApp...");
+        
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+        console.log("✅ Auth state carregado");
         
         sock = makeWASocket({
             auth: state,
             browser: ["Chrome", "Linux", "128.0"],
-            printQRInTerminal: false,
+            printQRInTerminal: true,
+            logger: console
         });
         
         sock.ev.on("creds.update", saveCreds);
@@ -43,15 +45,15 @@ async function startWhatsApp() {
         sock.ev.on("connection.update", async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            console.log("📡 Status:", { connection, hasQR: !!qr });
+            console.log("📡 Update:", { connection, hasQR: !!qr });
             
             if (qr) {
-                console.log("✅ QR Code recebido!");
+                console.log("✅✅✅ QR Code GERADO! ✅✅✅");
                 try {
                     lastQR = await qrcode.toDataURL(qr);
-                    console.log("✅ QR convertido para imagem!");
+                    console.log("QR convertido para imagem!");
                 } catch (err) {
-                    console.error("Erro ao converter QR:", err);
+                    console.error("Erro converter QR:", err);
                 }
             }
             
@@ -276,6 +278,8 @@ app.post("/reset", async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`✅ Servidor rodando na porta ${PORT}`);
+    console.log(`📱 Acesse: http://localhost:${PORT}`);
 });
 
+// Inicia o bot
 startWhatsApp();
